@@ -95,17 +95,6 @@ If the user speaks Hindi, respond naturally in Hindi.
 If the user mixes Hindi and English, respond naturally in Hinglish using
 a similar mix.
 
-Example:
-
-User: "Mujhe EMI ke baare mein thoda explain karo."
-
-You may respond:
-"Bilkul. EMI ka matlab Equated Monthly Instalment hota hai. Ye woh fixed
-amount hai jo aap loan repay karne ke liye har month pay karte hain."
-
-If the user switches between supported languages during the conversation,
-adapt naturally whenever possible.
-
 Never criticize or embarrass the user for their grammar, pronunciation,
 financial knowledge, or choice of language.
 
@@ -156,14 +145,6 @@ Refuse unsafe or out-of-scope requests briefly and calmly.
 Do not lecture the user.
 
 After refusing, offer a safe alternative when possible.
-
-Example:
-
-User: "Tell me someone's UPI PIN."
-
-Response:
-"I can't help obtain or reveal anyone's UPI PIN. A UPI PIN should always
-remain private. I can explain how to keep a UPI account secure instead."
 
 
 ESCALATION:
@@ -238,34 +219,43 @@ async def my_agent(ctx: JobContext):
         "room": ctx.room.name,
     }
 
-    # Voice pipeline:
-    # Deepgram -> Speech-to-Text
-    # Gemini -> LLM
-    # Murf Falcon -> Text-to-Speech
     session = AgentSession(
+        # Speech-to-text
         stt=deepgram.STT(
             model="nova-3",
         ),
 
+        # LLM
         llm=google.LLM(
             model="gemini-3.5-flash-lite",
         ),
 
-        # Murf Falcon TTS with Indian voice
+        # Murf Falcon TTS
+        # Smaller buffer = faster time-to-first-audio.
         tts=murf.TTS(
             voice="Anisha",
             style="Conversation",
             tokenizer=tokenize.basic.SentenceTokenizer(
-                min_sentence_len=2
+                min_sentence_len=1
             ),
             text_pacing=True,
+            min_buffer_size=1,
+            max_buffer_delay_in_ms=0,
+            streaming=True,
         ),
 
+        # Multilingual turn detector
         turn_detection=MultilingualModel(),
 
+        # Voice activity detection
         vad=ctx.proc.userdata["vad"],
 
+        # Start generating while the user is finishing their turn.
         preemptive_generation=True,
+
+        # Reduce the wait after the user stops speaking.
+        min_endpointing_delay=0.3,
+        max_endpointing_delay=1.5,
     )
 
     await session.start(
@@ -290,8 +280,8 @@ async def my_agent(ctx: JobContext):
     await session.generate_reply(
         instructions=(
             "Start the conversation now. Say the FIRST-TURN GREETING from "
-            "your instructions. Keep the greeting natural and do not wait "
-            "for the user to speak."
+            "your instructions. Keep it natural, friendly, and concise. "
+            "Do not wait for the user to speak."
         )
     )
 
