@@ -207,6 +207,26 @@ export function AgentSessionView_01({
     stateConfig[voiceState as keyof typeof stateConfig] ??
     stateConfig.connecting;
 
+  /*
+   * IMPORTANT:
+   * Do NOT call session.end() automatically here.
+   *
+   * The previous:
+   *
+   *   onDisconnect={session.end}
+   *
+   * could cause the frontend to terminate the session during
+   * the connection lifecycle.
+   *
+   * The actual Leave button remains available through the
+   * AgentControlBar.
+   */
+  const handleDisconnect = () => {
+    console.log(
+      '[BharatMoney] LiveKit disconnect callback received'
+    );
+  };
+
   return (
     <section
       ref={ref}
@@ -217,9 +237,9 @@ export function AgentSessionView_01({
       {...props}
     >
       {/* BharatMoney Header */}
-      <header className="absolute left-0 right-0 top-0 z-[60] flex items-center justify-between border-b border-white/10 bg-[#07120f]/90 px-5 py-4 backdrop-blur-md md:px-10">
+      <header className="absolute left-0 right-0 top-0 z-50 flex items-center justify-between px-5 py-4 md:px-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400 font-black text-[#07120f]">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-300/10 text-lg">
             ₹
           </div>
 
@@ -255,22 +275,32 @@ export function AgentSessionView_01({
         </div>
       </div>
 
-      {/* Original LiveKit Visualizer */}
+      {/* LiveKit Visualizer */}
       <TileLayout
         chatOpen={chatOpen}
         audioVisualizerType={audioVisualizerType}
         audioVisualizerColor={audioVisualizerColor}
         audioVisualizerColorShift={audioVisualizerColorShift}
         audioVisualizerBarCount={audioVisualizerBarCount}
-        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+        audioVisualizerRadialBarCount={
+          audioVisualizerRadialBarCount
+        }
+        audioVisualizerRadialRadius={
+          audioVisualizerRadialRadius
+        }
+        audioVisualizerGridRowCount={
+          audioVisualizerGridRowCount
+        }
+        audioVisualizerGridColumnCount={
+          audioVisualizerGridColumnCount
+        }
+        audioVisualizerWaveLineWidth={
+          audioVisualizerWaveLineWidth
+        }
       />
 
       {/* Transcript */}
-      <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
+      <div className="absolute bottom-[135px] top-0 flex w-full flex-col md:bottom-[170px]">
         <AnimatePresence>
           {chatOpen && (
             <motion.div
@@ -320,7 +350,7 @@ export function AgentSessionView_01({
             controls={controls}
             isChatOpen={chatOpen}
             isConnected={session.isConnected}
-            onDisconnect={session.end}
+            onDisconnect={handleDisconnect}
             onIsChatOpenChange={setChatOpen}
           />
         </div>

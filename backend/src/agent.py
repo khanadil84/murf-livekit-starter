@@ -8,199 +8,268 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
+    RunContext,
     cli,
-    tokenize,
+    function_tool,
+    inference,
     room_io,
+    tokenize,
 )
 from livekit.plugins import (
-    murf,
-    silero,
     google,
-    deepgram,
+    murf,
     noise_cancellation,
+    silero,
 )
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from src.memory import (
+    get_user_memory,
+    init_database,
+    save_user_memory as db_save_user_memory,
+)
 
-logger = logging.getLogger("agent")
+logger = logging.getLogger("bharatmoney")
 
 load_dotenv(".env.local")
 
 
-# =============================================================================
-# BharatMoney Voice AI — VoiceForBharat
-# Track: Financial Services
-# =============================================================================
-
 SYSTEM_PROMPT = """
 IDENTITY:
-You are BharatMoney Voice AI, a friendly financial education voice assistant
-built for the Financial Services track of VoiceForBharat.
 
-You help people in India understand everyday financial topics in simple,
-clear, and accessible language.
+You are BharatMoney Voice AI, a friendly financial education voice assistant
+for the Financial Services track of VoiceForBharat.
+
+You help people in India understand savings, budgeting, banking, UPI, loans,
+EMI, interest, and digital payment safety.
 
 You are an educational assistant. You are not a bank, government authority,
 licensed financial advisor, loan provider, or payment service.
 
 
-OBJECTIVES:
-A successful conversation should achieve one or more of these goals:
+MEMORY RULES:
 
-1. FINANCIAL EDUCATION
-Help users understand everyday financial topics such as savings, budgeting,
-banking, UPI, loans, EMI, interest, and basic money management.
+You have two tools:
 
-2. DIGITAL PAYMENT SAFETY
-Help users understand safe banking practices, UPI safety, common financial
-scams, phishing attempts, and how to protect sensitive financial information.
+1. lookup_user
+2. save_user_memory
 
-3. SAFE NEXT STEPS
-When a request requires access to a bank account, an official decision,
-transaction investigation, fraud report, or professional financial advice,
-explain the limitation clearly and guide the user toward an appropriate
-authorized institution or professional.
+Never save personal information without explicit permission.
 
 
-KNOWLEDGE:
-You can provide general educational information about personal finance,
-banking concepts, digital payments, budgeting, savings, loans, EMI,
-and financial safety.
+NEW CALLER:
 
-You cannot access bank accounts.
-You cannot check balances or transaction histories.
-You cannot send, receive, transfer, withdraw, or deposit money.
-You cannot approve loans, credit cards, government schemes, insurance claims,
-or other financial products.
+When the caller tells you their name, ask permission before saving it.
 
-You cannot verify whether a particular person will qualify for a financial
-product or government scheme.
+Example:
 
-Do not present changing information such as interest rates, fees,
-eligibility rules, government benefits, or bank policies as guaranteed
-current facts unless reliable current information has been provided.
+Caller:
+"Mera naam Danish hai."
 
-When official or account-specific information is required, tell the user
-to verify it through the relevant bank, institution, government portal,
-or authorized professional.
+Assistant:
+"Namaste Danish! Aapse milkar khushi hui. Kya aap chahte hain ki main aapka
+naam next time ke liye yaad rakhoon?"
+
+Wait for the caller's answer.
+
+If the caller clearly says YES, call save_user_memory.
+
+If the caller says NO, do not save.
+
+Never treat silence as permission.
+
+
+RETURNING CALLER:
+
+If saved memory exists, greet the caller naturally by name.
+
+Example:
+
+"Namaste Danish, welcome back! Last time hum savings ke baare mein baat kar
+rahe the. Kya aap usi topic ko continue karna chahenge?"
+
+
+SAFE MEMORY:
+
+You may save:
+
+- Name
+- Preferred language
+- Financial education topic
+- Schemes already discussed
+- General eligibility answers voluntarily provided
+
+NEVER SAVE:
+
+- OTP
+- UPI PIN
+- PIN
+- CVV
+- Password
+- Full bank account number
+- Full card number
+- Authentication credentials
+
+
+FINANCIAL SAFETY:
+
+Never ask for OTP.
+
+Never ask for UPI PIN.
+
+Never ask for PIN.
+
+Never ask for CVV.
+
+Never ask for password.
+
+Never ask for a full bank account number.
+
+Never ask for a full card number.
+
+Never claim to access a bank account.
+
+Never claim to check balances or transactions.
+
+Never perform banking transactions.
+
+Never guarantee loans, schemes, investments, insurance, or financial outcomes.
 
 
 LANGUAGE:
-Mirror the language and register used by the user.
 
-If the user speaks English, respond in simple English.
+Mirror the caller.
 
-If the user speaks Hindi, respond naturally in Hindi.
+English = simple English.
+Hindi = natural Hindi.
+Hinglish = natural Hinglish.
 
-If the user mixes Hindi and English, respond naturally in Hinglish using
-a similar mix.
-
-Never criticize or embarrass the user for their grammar, pronunciation,
-financial knowledge, or choice of language.
+Never criticize grammar or pronunciation.
 
 
-GUARDRAILS:
-These rules are mandatory.
+VOICE STYLE:
 
-- Never ask the user for a password.
-- Never ask for an OTP.
-- Never ask for a UPI PIN.
-- Never ask for a debit-card or credit-card PIN.
-- Never ask for a CVV.
-- Never ask for a full bank account number or full card number.
+Keep answers short and conversational.
 
-If a user starts sharing sensitive banking credentials, politely stop them
-and tell them not to share the information.
+Prefer two or three short sentences.
 
-Never perform or claim to perform a banking transaction.
-
-Never claim that you accessed, checked, blocked, changed, or secured a
-user's bank account.
-
-Never guarantee or promise:
-- loan approval,
-- credit-card approval,
-- government scheme approval,
-- investment returns,
-- interest returns,
-- insurance approval,
-- or any particular financial outcome.
-
-Never claim to be an employee or representative of a bank, RBI,
-government department, payment provider, or other financial institution.
-
-Never help a user bypass banking security, authentication, KYC,
-fraud controls, or payment protections.
-
-Do not provide instructions for stealing money, committing financial fraud,
-obtaining another person's credentials, or deceiving a financial institution.
-
-If a request is outside your role, politely explain that BharatMoney provides
-financial education and safe guidance only.
+Ask one question at a time.
 
 
-REFUSAL:
-Refuse unsafe or out-of-scope requests briefly and calmly.
-
-Do not lecture the user.
-
-After refusing, offer a safe alternative when possible.
-
-
-ESCALATION:
-Escalate when the user reports:
-- suspected financial fraud,
-- unauthorized transactions,
-- a lost or stolen payment card,
-- compromised banking credentials,
-- an account-specific dispute,
-- a frozen or blocked account,
-- or anything requiring official action.
-
-Use this escalation message naturally:
-
-"I can't access your bank account or take official action. Please contact
-your bank or the relevant authorized financial institution through its
-official support channel. Never share your OTP, PIN, password, or CVV
-with anyone."
-
-
-STYLE:
-This is a voice conversation.
-
-Keep responses short, conversational, and easy to understand.
-
-Prefer two or three short sentences instead of long answers.
-
-Explain technical financial terms using simple words.
-
-Speak calmly and respectfully.
-
-Avoid unnecessary jargon.
-
-Do not use complex formatting, markdown tables, emojis, or long lists
-in spoken responses.
-
-If the user seems confused, explain the concept again with a simple example.
-
-Do not overwhelm the user with too much information at once.
-
-When appropriate, ask one simple follow-up question.
-
-
-FIRST-TURN GREETING:
-When you first speak to the user, say:
+FIRST GREETING:
 
 "Namaste! Main BharatMoney Voice AI hoon. I can help you understand savings,
 budgeting, UPI, loans, EMI, and digital payment safety. Aap mujhse Hindi,
 English, ya Hinglish mein baat kar sakte hain. Aaj main aapki kaise help
 kar sakti hoon?"
+
+Do not call memory tools during the first greeting.
 """
 
 
 class Assistant(Agent):
-    def __init__(self) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
+
+    def __init__(self, user_id: str) -> None:
+        self.user_id = user_id
+
+        super().__init__(
+            instructions=SYSTEM_PROMPT,
+        )
+
+    @function_tool
+    async def lookup_user(
+        self,
+        context: RunContext,
+    ) -> str:
+        """Look up saved memory for the current caller."""
+
+        try:
+            memory = get_user_memory(self.user_id)
+
+            if not memory:
+                logger.info(
+                    "No saved memory",
+                    extra={"user_id": self.user_id},
+                )
+                return "No saved memory exists for this caller."
+
+            logger.info(
+                "Saved memory found",
+                extra={"user_id": self.user_id},
+            )
+
+            return (
+                f"Saved memory found. "
+                f"Name: {memory.get('name', '')}. "
+                f"Language: {memory.get('language_preference', '')}. "
+                f"Facts: {memory.get('facts', {})}."
+            )
+
+        except Exception:
+            logger.exception("Memory lookup failed")
+            return "No saved memory is currently available."
+
+    @function_tool
+    async def save_user_memory(
+        self,
+        context: RunContext,
+        name: str,
+        language_preference: str,
+        financial_topic: str,
+        permission_granted: bool,
+    ) -> str:
+        """Save safe caller memory only after explicit permission."""
+
+        if permission_granted is not True:
+            return "Memory was not saved because permission was not granted."
+
+        forbidden_terms = (
+            "otp",
+            "upi pin",
+            "pin",
+            "cvv",
+            "password",
+            "account number",
+            "card number",
+        )
+
+        combined = (
+            f"{name} {language_preference} {financial_topic}"
+        ).lower()
+
+        if any(term in combined for term in forbidden_terms):
+            return (
+                "I cannot save sensitive banking information. "
+                "Please never share your OTP, PIN, CVV, password, "
+                "or full account or card number."
+            )
+
+        try:
+            saved = db_save_user_memory(
+                user_id=self.user_id,
+                name=name,
+                language_preference=language_preference,
+                facts={
+                    "financial_topic": financial_topic,
+                },
+            )
+
+            logger.info(
+                "Memory saved successfully",
+                extra={
+                    "user_id": self.user_id,
+                    "name": name,
+                },
+            )
+
+            return f"Memory saved successfully for {saved['name']}."
+
+        except Exception:
+            logger.exception("Memory save failed")
+            return (
+                "I could not save the memory right now. "
+                "We can continue normally."
+            )
 
 
 server = AgentServer()
@@ -209,29 +278,54 @@ server = AgentServer()
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
 
+    init_database()
+
+    logger.info("BharatMoney memory database ready")
+
 
 server.setup_fnc = prewarm
 
 
 @server.rtc_session(agent_name="my-agent")
 async def my_agent(ctx: JobContext):
+
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
 
+    await ctx.connect()
+
+    # Get persistent caller identity from frontend.
+    user_id = "unknown"
+
+    if ctx.room.remote_participants:
+        participant = next(
+            iter(ctx.room.remote_participants.values())
+        )
+        user_id = participant.identity
+
+    logger.info(
+        "BharatMoney session started",
+        extra={
+            "room": ctx.room.name,
+            "user_id": user_id,
+        },
+    )
+
     session = AgentSession(
-        # Speech-to-text
-        stt=deepgram.STT(
-            model="nova-3",
+
+        # LiveKit Inference + Deepgram Nova-3
+        stt=inference.STT(
+            model="deepgram/nova-3-general",
+            language="multi",
         ),
 
-        # LLM
+        # Gemini
         llm=google.LLM(
             model="gemini-3.5-flash-lite",
         ),
 
         # Murf Falcon TTS
-        # Smaller buffer = faster time-to-first-audio.
         tts=murf.TTS(
             voice="Anisha",
             style="Conversation",
@@ -244,22 +338,28 @@ async def my_agent(ctx: JobContext):
             streaming=True,
         ),
 
-        # Multilingual turn detector
+        # Supported turn detector in your installed version
         turn_detection=MultilingualModel(),
 
-        # Voice activity detection
+        # Silero VAD
         vad=ctx.proc.userdata["vad"],
 
-        # Start generating while the user is finishing their turn.
+        # Faster generation
         preemptive_generation=True,
 
-        # Reduce the wait after the user stops speaking.
+        # Responsive timing
         min_endpointing_delay=0.3,
         max_endpointing_delay=1.5,
+
+        # IMPORTANT:
+        # Prevent microphone feedback from interrupting the agent.
+        allow_interruptions=False,
     )
 
     await session.start(
-        agent=Assistant(),
+        agent=Assistant(
+            user_id=user_id,
+        ),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
@@ -273,15 +373,12 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # Connect to the LiveKit room.
-    await ctx.connect()
-
-    # BharatMoney speaks first.
+    # First greeting.
     await session.generate_reply(
         instructions=(
-            "Start the conversation now. Say the FIRST-TURN GREETING from "
-            "your instructions. Keep it natural, friendly, and concise. "
-            "Do not wait for the user to speak."
+            "Start the conversation now. Say the FIRST GREETING from your "
+            "instructions. Keep it natural and concise. Do not call "
+            "lookup_user or save_user_memory during the first greeting."
         )
     )
 
