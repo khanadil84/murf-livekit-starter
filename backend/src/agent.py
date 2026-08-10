@@ -1,4 +1,7 @@
+import asyncio
 import logging
+import re
+import urllib.request
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -21,7 +24,6 @@ from livekit.plugins import (
     noise_cancellation,
     silero,
 )
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from src.memory import (
     get_user_memory,
@@ -46,18 +48,14 @@ EMI, interest, and digital payment safety.
 You are an educational assistant. You are not a bank, government authority,
 licensed financial advisor, loan provider, or payment service.
 
+MEMORY TOOLS:
 
-MEMORY RULES:
-
-You have two tools:
+You have two memory tools:
 
 1. lookup_user
 2. save_user_memory
 
 Never save personal information without explicit permission.
-
-
-NEW CALLER:
 
 When the caller tells you their name, ask permission before saving it.
 
@@ -67,8 +65,8 @@ Caller:
 "Mera naam Danish hai."
 
 Assistant:
-"Namaste Danish! Aapse milkar khushi hui. Kya aap chahte hain ki main aapka
-naam next time ke liye yaad rakhoon?"
+"Namaste Danish! Aapse milkar khushi hui. Kya aap chahte hain ki main
+aapka naam next time ke liye yaad rakhoon?"
 
 Wait for the caller's answer.
 
@@ -78,7 +76,6 @@ If the caller says NO, do not save.
 
 Never treat silence as permission.
 
-
 RETURNING CALLER:
 
 If saved memory exists, greet the caller naturally by name.
@@ -87,7 +84,6 @@ Example:
 
 "Namaste Danish, welcome back! Last time hum savings ke baare mein baat kar
 rahe the. Kya aap usi topic ko continue karna chahenge?"
-
 
 SAFE MEMORY:
 
@@ -109,7 +105,6 @@ NEVER SAVE:
 - Full bank account number
 - Full card number
 - Authentication credentials
-
 
 FINANCIAL SAFETY:
 
@@ -135,6 +130,33 @@ Never perform banking transactions.
 
 Never guarantee loans, schemes, investments, insurance, or financial outcomes.
 
+DAY 5 REAL DATA TOOL:
+
+You also have this tool:
+
+3. check_pmjdy_information
+
+Use check_pmjdy_information whenever the caller asks about:
+
+- PM Jan Dhan Yojana
+- PMJDY
+- Jan Dhan account
+- PMJDY benefits
+- PMJDY account features
+- PMJDY minimum balance
+- where to open a PMJDY account
+- current PMJDY information
+
+For current PMJDY information, call the tool instead of relying only on
+your own knowledge.
+
+The tool obtains information from the official Government of India
+PMJDY website.
+
+If the tool fails, clearly tell the caller that the official information
+source could not be reached.
+
+Never invent current scheme information.
 
 LANGUAGE:
 
@@ -146,7 +168,6 @@ Hinglish = natural Hinglish.
 
 Never criticize grammar or pronunciation.
 
-
 VOICE STYLE:
 
 Keep answers short and conversational.
@@ -154,7 +175,6 @@ Keep answers short and conversational.
 Prefer two or three short sentences.
 
 Ask one question at a time.
-
 
 FIRST GREETING:
 
@@ -221,7 +241,9 @@ class Assistant(Agent):
         """Save safe caller memory only after explicit permission."""
 
         if permission_granted is not True:
-            return "Memory was not saved because permission was not granted."
+            return (
+                "Memory was not saved because permission was not granted."
+            )
 
         forbidden_terms = (
             "otp",
@@ -266,9 +288,163 @@ class Assistant(Agent):
 
         except Exception:
             logger.exception("Memory save failed")
+
             return (
                 "I could not save the memory right now. "
                 "We can continue normally."
+            )
+
+    @function_tool
+    async def check_pmjdy_information(
+        self,
+        context: RunContext,
+    ) -> str:
+        """
+        Fetch current PM Jan-Dhan Yojana information from the official
+        Government of India PMJDY website.
+
+        Use this when the caller asks about PMJDY, Jan Dhan accounts,
+        account benefits, minimum balance, account opening, or current
+        PMJDY information.
+        """
+
+        url = "https://pmjdy.gov.in/scheme"
+
+        def fetch_page() -> str:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 BharatMoney-VoiceAI/1.0"
+                    )
+                },
+            )
+
+            with urllib.request.urlopen(
+                request,
+                timeout=8,
+            ) as response:
+                return response.read().decode(
+                    "utf-8",
+                    errors="ignore",
+                )
+
+        try:
+            logger.info(
+                "Fetching official PMJDY information",
+                extra={
+                    "user_id": self.user_id,
+                    "source": url,
+                },
+            )
+
+            html = await asyncio.to_thread(fetch_page)
+
+            if not html:
+                raise RuntimeError(
+                    "Official PMJDY website returned empty data."
+                )
+
+            text = re.sub(
+                r"<script.*?</script>",
+                " ",
+                html,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+
+            text = re.sub(
+                r"<style.*?</style>",
+                " ",
+                text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+
+            text = re.sub(
+                r"<[^>]+>",
+                " ",
+                text,
+            )
+
+            text = re.sub(
+                r"\s+",
+                " ",
+                text,
+            ).strip()
+
+            text_lower = text.lower()
+
+            useful_phrases = []
+
+            keywords = (
+                "zero balance",
+                "minimum balance",
+                "bank mitra",
+                "bank branch",
+                "savings",
+                "deposit account",
+                "financial services",
+                "rupey debit card",
+                "overdraft",
+            )
+
+            for keyword in keywords:
+                position = text_lower.find(keyword)
+
+                if position != -1:
+                    start = max(0, position - 180)
+                    end = min(
+                        len(text),
+                        position + 350,
+                    )
+
+                    snippet = text[start:end]
+
+                    if snippet not in useful_phrases:
+                        useful_phrases.append(snippet)
+
+            if not useful_phrases:
+                logger.warning(
+                    "PMJDY page loaded but no useful text was extracted"
+                )
+
+                return (
+                    "I reached the official PMJDY website, but I could "
+                    "not extract the required information right now. "
+                    "I don't want to guess. Please try again shortly."
+                )
+
+            result = " ".join(useful_phrases[:3])
+
+            if len(result) > 1800:
+                result = result[:1800] + "..."
+
+            logger.info(
+                "Official PMJDY information fetched successfully",
+                extra={
+                    "user_id": self.user_id,
+                },
+            )
+
+            return (
+                "I successfully checked the official Government of India "
+                "PMJDY website during this conversation. "
+                f"Here is the relevant information: {result} "
+                "Source: official PMJDY website. "
+                "The information was retrieved now, so the caller should "
+                "still verify important eligibility or documentation "
+                "details with the official source or a bank."
+            )
+
+        except Exception:
+            logger.exception(
+                "PMJDY official source lookup failed"
+            )
+
+            return (
+                "I couldn't reach the official PMJDY information source "
+                "right now. I don't want to guess or give you outdated "
+                "financial information. Please try again in a moment "
+                "or check the official PMJDY website."
             )
 
 
@@ -280,7 +456,9 @@ def prewarm(proc: JobProcess):
 
     init_database()
 
-    logger.info("BharatMoney memory database ready")
+    logger.info(
+        "BharatMoney memory database ready"
+    )
 
 
 server.setup_fnc = prewarm
@@ -295,13 +473,13 @@ async def my_agent(ctx: JobContext):
 
     await ctx.connect()
 
-    # Get persistent caller identity from frontend.
     user_id = "unknown"
 
     if ctx.room.remote_participants:
         participant = next(
             iter(ctx.room.remote_participants.values())
         )
+
         user_id = participant.identity
 
     logger.info(
@@ -314,7 +492,7 @@ async def my_agent(ctx: JobContext):
 
     session = AgentSession(
 
-        # LiveKit Inference + Deepgram Nova-3
+        # Deepgram Nova-3
         stt=inference.STT(
             model="deepgram/nova-3-general",
             language="multi",
@@ -338,8 +516,14 @@ async def my_agent(ctx: JobContext):
             streaming=True,
         ),
 
-        # Supported turn detector in your installed version
-        turn_detection=MultilingualModel(),
+        # IMPORTANT:
+        # MultilingualModel() was removed because it was producing:
+        #
+        # AssertionError:
+        # end_of_utterance prediction should always returns a result
+        #
+        # Silero VAD + endpointing handles turn detection here.
+        turn_detection=None,
 
         # Silero VAD
         vad=ctx.proc.userdata["vad"],
@@ -351,7 +535,6 @@ async def my_agent(ctx: JobContext):
         min_endpointing_delay=0.3,
         max_endpointing_delay=1.5,
 
-        # IMPORTANT:
         # Prevent microphone feedback from interrupting the agent.
         allow_interruptions=False,
     )
@@ -373,12 +556,12 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # First greeting.
     await session.generate_reply(
         instructions=(
-            "Start the conversation now. Say the FIRST GREETING from your "
-            "instructions. Keep it natural and concise. Do not call "
-            "lookup_user or save_user_memory during the first greeting."
+            "Start the conversation now. Say the FIRST GREETING from "
+            "your instructions. Keep it natural and concise. "
+            "Do not call lookup_user, save_user_memory, or "
+            "check_pmjdy_information during the first greeting."
         )
     )
 
