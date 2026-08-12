@@ -1,0 +1,26 @@
+[
+  {
+    "reference_id": "ESC-EFA450D2",
+    "created_at": "2026-08-12T08:44:11.315105+00:00",
+    "user_id": "bharatmoney-demo-danish",
+    "reason": "Caller reported possible UPI fraud / unauthorized transaction.",
+    "what_happened": "Caller reported suspected UPI fraud and unauthorized transaction.",
+    "what_was_checked": "Discussed PMJDY and immediately recognized urgent fraud report requiring human assistance.",
+    "urgency": "High",
+    "caller_language": "Hinglish",
+    "preferred_follow_up": "Call or message",
+    "status": "OPEN"
+  },
+  {
+    "reference_id": "ESC-0EB8437E",
+    "created_at": "2026-08-12T09:12:49.795956+00:00",
+    "user_id": "bharatmoney-demo-danish",
+    "reason": "Caller reported potential fraud with UPI/account.",
+    "what_happened": "Caller reported that they suspect fraud has happened with their UPI/account.",
+    "what_was_checked": "Checked that the caller reported potential fraud and requested an escalation with explicit permission.",
+    "urgency": "High",
+    "caller_language": "Hindi",
+    "preferred_follow_up": "Phone / Call",
+    "status": "OPEN"
+  }
+]

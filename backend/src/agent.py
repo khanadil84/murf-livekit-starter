@@ -1,7 +1,11 @@
 import asyncio
+import json
 import logging
+import os
 import re
 import urllib.request
+import uuid
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -62,10 +66,10 @@ When the caller tells you their name, ask permission before saving it.
 Example:
 
 Caller:
-"Mera naam Danish hai."
+"Mera naam Adil hai."
 
 Assistant:
-"Namaste Danish! Aapse milkar khushi hui. Kya aap chahte hain ki main
+"Namaste Adil! Aapse milkar khushi hui. Kya aap chahte hain ki main
 aapka naam next time ke liye yaad rakhoon?"
 
 Wait for the caller's answer.
@@ -158,6 +162,39 @@ source could not be reached.
 
 Never invent current scheme information.
 
+
+DAY 7 HUMAN HELP:
+
+You must ask for human help in these two situations:
+
+1. POSSIBLE FRAUD:
+If the caller reports possible fraud, unauthorized transactions,
+UPI fraud, card fraud, or suspicious financial activity.
+
+2. FINANCIAL DECISION:
+If the caller asks you to make a personal financial decision
+that you cannot safely or reliably make, such as deciding whether
+they personally qualify for a financial product.
+
+Before creating an escalation:
+
+1. Explain why human help is needed.
+2. Tell the caller exactly what short information you want to share:
+   - what happened
+   - what you already checked
+   - urgency
+   - caller language
+   - preferred follow-up method
+3. Ask for explicit permission to share this summary with a human.
+4. Do NOT create the escalation if the caller says no.
+5. Never include OTP, PIN, UPI PIN, CVV, password, full account number,
+   or full card number in the escalation.
+
+Only call create_escalation after the caller clearly gives permission.
+
+After successful creation, give the caller the reference ID and explain
+that a human can review the request. Never promise an immediate response.
+
 LANGUAGE:
 
 Mirror the caller.
@@ -195,6 +232,138 @@ class Assistant(Agent):
         super().__init__(
             instructions=SYSTEM_PROMPT,
         )
+
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        reason: str,
+        what_happened: str,
+        what_was_checked: str,
+        urgency: str,
+        caller_language: str,
+        preferred_follow_up: str,
+        permission_granted: bool,
+    ) -> str:
+        """
+        Create a human-help request only after explicit caller permission.
+        """
+
+        if permission_granted is not True:
+            logger.info(
+                "Escalation not created because permission was not granted",
+                extra={"user_id": self.user_id},
+            )
+
+            return (
+                "I did not create a human-help request because "
+                "permission was not granted."
+            )
+
+        sensitive_terms = (
+            "otp",
+            "upi pin",
+            "pin",
+            "cvv",
+            "password",
+            "account number",
+            "card number",
+        )
+
+        combined = (
+            f"{reason} "
+            f"{what_happened} "
+            f"{what_was_checked}"
+        ).lower()
+
+        if any(term in combined for term in sensitive_terms):
+            logger.warning(
+                "Escalation blocked because sensitive information was detected",
+                extra={"user_id": self.user_id},
+            )
+
+            return (
+                "I cannot create the request with sensitive banking "
+                "information. Please do not share OTP, PIN, CVV, "
+                "password, or full account or card numbers."
+            )
+
+        reference_id = "ESC-" + uuid.uuid4().hex[:8].upper()
+
+        escalation = {
+            "reference_id": reference_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "user_id": self.user_id,
+            "reason": reason,
+            "what_happened": what_happened,
+            "what_was_checked": what_was_checked,
+            "urgency": urgency,
+            "caller_language": caller_language,
+            "preferred_follow_up": preferred_follow_up,
+            "status": "OPEN",
+        }
+
+        backend_dir = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        escalation_file = os.path.join(
+            backend_dir,
+            "escalations.json",
+        )
+
+        try:
+            existing = []
+
+            if os.path.exists(escalation_file):
+                with open(
+                    escalation_file,
+                    "r",
+                    encoding="utf-8",
+                ) as file:
+                    try:
+                        existing = json.load(file)
+                    except json.JSONDecodeError:
+                        existing = []
+
+            existing.append(escalation)
+
+            with open(
+                escalation_file,
+                "w",
+                encoding="utf-8",
+            ) as file:
+                json.dump(
+                    existing,
+                    file,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            logger.info(
+                "Human escalation created",
+                extra={
+                    "reference_id": reference_id,
+                    "reason": reason,
+                    "urgency": urgency,
+                    "user_id": self.user_id,
+                },
+            )
+
+            return (
+                f"Human-help request created successfully. "
+                f"Reference ID: {reference_id}. "
+                "Tell the caller that the request is open and "
+                "a human can review it. Do not promise an immediate response."
+            )
+
+        except Exception:
+            logger.exception("Failed to create human escalation")
+
+            return (
+                "I could not create the human-help request right now. "
+                "Please try again later."
+            )
 
     @function_tool
     async def lookup_user(
