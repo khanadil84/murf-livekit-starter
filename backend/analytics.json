@@ -1,0 +1,26 @@
+[
+  {
+    "call_id": "voice_assistant_room_432",
+    "started_at": "2026-08-13T07:36:21.820192+00:00",
+    "ended_at": "2026-08-13T07:37:47.273624+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_261",
+    "started_at": "2026-08-13T07:42:01.107633+00:00",
+    "ended_at": "2026-08-13T07:43:19.765178+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_9325",
+    "started_at": "2026-08-13T08:31:36.858822+00:00",
+    "ended_at": "2026-08-13T08:33:17.238576+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_2100",
+    "started_at": "2026-08-13T08:35:03.796323+00:00",
+    "ended_at": "2026-08-13T08:36:48.661466+00:00",
+    "outcome": "successful"
+  }
+]

@@ -40,6 +40,50 @@ logger = logging.getLogger("bharatmoney")
 load_dotenv(".env.local")
 
 
+ANALYTICS_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "analytics.json",
+)
+
+
+def _load_call_analytics() -> list[dict]:
+    if not os.path.exists(ANALYTICS_FILE):
+        return []
+    try:
+        with open(ANALYTICS_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to read call analytics")
+        return []
+
+
+def _save_call_analytics(records: list[dict]) -> None:
+    with open(ANALYTICS_FILE, "w", encoding="utf-8") as file:
+        json.dump(records, file, indent=2, ensure_ascii=False)
+
+
+def record_call_outcome(
+    *,
+    call_id: str,
+    started_at: str,
+    ended_at: str,
+    outcome: str,
+) -> None:
+    """Save minimal call analytics. Never store transcripts or sensitive data."""
+    records = _load_call_analytics()
+    records.append({
+        "call_id": call_id,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "outcome": outcome,
+    })
+    _save_call_analytics(records)
+    logger.info("Call outcome recorded", extra={"call_id": call_id, "outcome": outcome})
+
+
+
+
 SYSTEM_PROMPT = """
 IDENTITY:
 
@@ -195,6 +239,15 @@ Only call create_escalation after the caller clearly gives permission.
 After successful creation, give the caller the reference ID and explain
 that a human can review the request. Never promise an immediate response.
 
+DAY 8 CALL OUTCOME:
+
+A call is successful when:
+- you successfully provide the requested financial information, or
+- you successfully create a required human-help request.
+
+The system records success automatically when the relevant tool completes.
+Do not tell the caller about internal analytics or call-outcome tracking.
+
 LANGUAGE:
 
 Mirror the caller.
@@ -226,12 +279,16 @@ Do not call memory tools during the first greeting.
 
 class Assistant(Agent):
 
-    def __init__(self, user_id: str) -> None:
+    def __init__(self, user_id: str, call_state: dict) -> None:
         self.user_id = user_id
+        self.call_state = call_state
 
         super().__init__(
             instructions=SYSTEM_PROMPT,
         )
+
+    def mark_call_success(self) -> None:
+        self.call_state["successful"] = True
 
 
     @function_tool
@@ -349,6 +406,8 @@ class Assistant(Agent):
                     "user_id": self.user_id,
                 },
             )
+
+            self.mark_call_success()
 
             return (
                 f"Human-help request created successfully. "
@@ -594,6 +653,8 @@ class Assistant(Agent):
                 },
             )
 
+            self.mark_call_success()
+
             return (
                 "I successfully checked the official Government of India "
                 "PMJDY website during this conversation. "
@@ -659,6 +720,10 @@ async def my_agent(ctx: JobContext):
         },
     )
 
+    call_id = ctx.room.name
+    started_at = datetime.now(timezone.utc).isoformat()
+    call_state = {"successful": False}
+
     session = AgentSession(
 
         # Deepgram Nova-3
@@ -708,9 +773,24 @@ async def my_agent(ctx: JobContext):
         allow_interruptions=False,
     )
 
+    async def save_call_outcome() -> None:
+        outcome = "successful" if call_state["successful"] else "failed"
+        try:
+            record_call_outcome(
+                call_id=call_id,
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                outcome=outcome,
+            )
+        except Exception:
+            logger.exception("Failed to record call analytics")
+
+    ctx.add_shutdown_callback(save_call_outcome)
+
     await session.start(
         agent=Assistant(
             user_id=user_id,
+            call_state=call_state,
         ),
         room=ctx.room,
         room_options=room_io.RoomOptions(
