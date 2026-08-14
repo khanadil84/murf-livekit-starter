@@ -35,6 +35,8 @@ from src.memory import (
     save_user_memory as db_save_user_memory,
 )
 
+from src.specialists.government_scheme import GovernmentSchemeSpecialist
+
 logger = logging.getLogger("bharatmoney")
 
 load_dotenv(".env.local")
@@ -248,6 +250,33 @@ A call is successful when:
 The system records success automatically when the relevant tool completes.
 Do not tell the caller about internal analytics or call-outcome tracking.
 
+DAY 9 SPECIALIST HANDOFF:
+
+You have access to a Government Scheme Specialist.
+
+Use the handoff when the caller asks for detailed help about:
+- PMJDY / Jan Dhan
+- Government financial schemes
+- Government scheme benefits
+- Government scheme eligibility
+- Government scheme documents
+- Other questions that are specifically about government financial schemes
+
+Do NOT hand off normal financial education questions such as:
+- What is UPI?
+- What is saving?
+- What is EMI?
+- General budgeting questions
+- General digital payment safety
+
+Before handing off, clearly tell the caller:
+"I'll connect you to our Government Scheme Specialist so you can get more focused help."
+
+Then use the transfer_to_government_scheme_specialist tool.
+
+The specialist receives the existing conversation context, so do not ask the caller
+to repeat the entire problem.
+
 LANGUAGE:
 
 Mirror the caller.
@@ -289,6 +318,39 @@ class Assistant(Agent):
 
     def mark_call_success(self) -> None:
         self.call_state["successful"] = True
+
+
+    @function_tool
+    async def transfer_to_government_scheme_specialist(
+        self,
+        context: RunContext,
+    ):
+        """Hand off government-scheme questions to the specialist agent.
+
+        Use this only when the caller needs focused help about PMJDY or
+        another Indian government financial scheme.
+        """
+
+        logger.info(
+            "Handing off to Government Scheme Specialist",
+            extra={"user_id": self.user_id},
+        )
+
+        # Preserve the conversation so the caller does not need to repeat
+        # the full problem. Exclude the main agent's system instructions.
+        chat_ctx = context.session.current_agent.chat_ctx.copy(
+            exclude_instructions=True
+        )
+
+        specialist = GovernmentSchemeSpecialist(
+            chat_ctx=chat_ctx,
+            call_state=self.call_state,
+        )
+
+        return (
+            specialist,
+            "Connecting you to the Government Scheme Specialist now.",
+        )
 
 
     @function_tool

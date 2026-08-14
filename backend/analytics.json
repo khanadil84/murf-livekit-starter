@@ -22,5 +22,35 @@
     "started_at": "2026-08-13T08:35:03.796323+00:00",
     "ended_at": "2026-08-13T08:36:48.661466+00:00",
     "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_5993",
+    "started_at": "2026-08-14T10:03:02.638590+00:00",
+    "ended_at": "2026-08-14T10:05:26.213068+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_8345",
+    "started_at": "2026-08-14T10:08:46.400338+00:00",
+    "ended_at": "2026-08-14T10:10:41.921157+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_5756",
+    "started_at": "2026-08-14T10:11:15.458157+00:00",
+    "ended_at": "2026-08-14T10:13:21.650443+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_1676",
+    "started_at": "2026-08-14T10:14:09.249993+00:00",
+    "ended_at": "2026-08-14T10:18:22.720233+00:00",
+    "outcome": "successful"
+  },
+  {
+    "call_id": "voice_assistant_room_7504",
+    "started_at": "2026-08-14T10:22:38.345517+00:00",
+    "ended_at": "2026-08-14T10:31:16.145741+00:00",
+    "outcome": "successful"
   }
 ]
